@@ -4,7 +4,7 @@ import { config } from "../config";
 const api = axios.create({
   baseURL: config.CRYPTOBOT_API,
   headers: { "Crypto-Pay-API-Token": config.CRYPTOBOT_TOKEN },
-  timeout: 10000,
+  timeout: 15000,
 });
 
 export interface Invoice {
@@ -24,21 +24,51 @@ export interface Invoice {
 
 export async function createInvoice(
   asset: string,
-  amount: string,
+  amountUsd: number,
   description: string,
   payload: string
 ): Promise<Invoice> {
-  const res = await api.post("/createInvoice", {
-    asset,
-    amount,
-    description,
-    payload,
-    paid_btn_name: "callback",
-    paid_btn_url: `https://t.me/${process.env.BOT_USERNAME || "ftpgame_bot"}`,
-  });
+  let body: any;
+
+  if (asset === "USDT") {
+    body = {
+      asset: "USDT",
+      amount: amountUsd.toString(),
+      description,
+      payload,
+      paid_btn_name: "callback",
+      paid_btn_url: `https://t.me/${process.env.BOT_USERNAME || "ftpgame_bot"}`,
+    };
+  } else {
+    body = {
+      currency_type: "fiat",
+      fiat: "USD",
+      accepted_assets: asset,
+      amount: amountUsd.toString(),
+      description,
+      payload,
+      paid_btn_name: "callback",
+      paid_btn_url: `https://t.me/${process.env.BOT_USERNAME || "ftpgame_bot"}`,
+    };
+  }
+
+  const res = await api.post("/createInvoice", body);
 
   if (!res.data.ok) {
-    throw new Error(res.data.error?.name || "CryptoBot API error");
+    const errName = res.data.error?.name || "CryptoBot error";
+    if (errName.includes("CURRENCY_INVALID") || errName.includes("fiat")) {
+      const fallback = await api.post("/createInvoice", {
+        asset: "USDT",
+        amount: amountUsd.toString(),
+        description,
+        payload,
+        paid_btn_name: "callback",
+        paid_btn_url: `https://t.me/${process.env.BOT_USERNAME || "ftpgame_bot"}`,
+      });
+      if (!fallback.data.ok) throw new Error(fallback.data.error?.name || "CryptoBot error");
+      return fallback.data.result;
+    }
+    throw new Error(errName);
   }
 
   return res.data.result;
@@ -46,9 +76,8 @@ export async function createInvoice(
 
 export async function getInvoice(invoiceId: string): Promise<Invoice | null> {
   const res = await api.post("/getInvoices", {
-    invoice_ids: invoiceId,
+    invoice_ids: invoiceId.toString(),
   });
-
   if (!res.data.ok) return null;
   const items = res.data.result?.items || [];
   return items[0] || null;
