@@ -277,8 +277,12 @@ export async function createBot() {
       if (data === "game_slots") {
         await ctx.answerCbQuery();
         return ctx.editMessageText(
-          `🎰 <b>СЛОТЫ</b>\n\n` +
-          `💎💎💎 = ×10 · ⭐⭐⭐ = ×5 · 3 одинак. = ×3 · 2 одинак. = ×1.5\n\n` +
+          `🎰 <b>СЛОТЫ</b>\n` +
+          `━━━━━━━━━━━━━━━\n` +
+          `💎💎💎 → <b>×10 JACKPOT</b>\n` +
+          `🍇🍇🍇 → <b>×7</b>  |  🍋🍋🍋 → <b>×5</b>\n` +
+          `🍒🍒🍒 → <b>×3</b>  |  Пара → <b>×2</b>\n` +
+          `━━━━━━━━━━━━━━━\n` +
           `Выбери ставку:`,
           {
             parse_mode: "HTML",
