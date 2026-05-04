@@ -51,7 +51,7 @@ export function slotsBetMenu() {
       Markup.button.callback("100 🪙", "slots_bet_100"),
     ],
     [Markup.button.callback("✏️ Своя сумма", "slots_custom")],
-    [Markup.button.callback("🔙 Назад", "back_games")],
+    [Markup.button.callback("📊 Выплаты", "slots_paytable"), Markup.button.callback("🔙 Назад", "back_games")],
   ]);
 }
 
@@ -129,17 +129,17 @@ export function depositMenu() {
 }
 
 export function diceRoomsList(rooms: any[]) {
-  const buttons = rooms.map((r) =>
-    [Markup.button.callback(`🎲 #${r.id} — ${r.bet} 🪙`, `join_dice_${r.id}`)]
+  const buttons = rooms.map(r =>
+    [Markup.button.callback(`🎲 #${r.id}  —  ${r.bet} 🪙`, `join_dice_${r.id}`)]
   );
   buttons.push([Markup.button.callback("🔙 Назад", "dice_multi")]);
   return Markup.inlineKeyboard(buttons);
 }
 
 export function coinflipRoomsList(rooms: any[]) {
-  const choiceEmoji = (c: string) => c === "heads" ? "🦅" : "🦁";
-  const buttons = rooms.map((r) =>
-    [Markup.button.callback(`${choiceEmoji(r.choice)} #${r.id} — ${r.bet} 🪙`, `join_cf_${r.id}`)]
+  const e = (c: string) => c === "heads" ? "🦅" : "🦁";
+  const buttons = rooms.map(r =>
+    [Markup.button.callback(`${e(r.choice)} #${r.id}  —  ${r.bet} 🪙`, `join_cf_${r.id}`)]
   );
   buttons.push([Markup.button.callback("🔙 Назад", "coinflip_multi")]);
   return Markup.inlineKeyboard(buttons);
