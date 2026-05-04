@@ -92,26 +92,21 @@ export async function getOrCreateUser(
       }
     }
 
+    // All new users get 10 coins welcome bonus
     await query(
       `INSERT INTO users (id, first_name, username, referral_code, referred_by, balance)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (id) DO NOTHING`,
-      [id, first_name, username, myRef, referredBy, referredBy ? 10 : 0]
+      [id, first_name, username, myRef, referredBy, 10]
     );
 
     if (referredBy) {
+      // Referrer gets bonus
       await query(
         "UPDATE users SET balance = balance + $1, xp = xp + 500 WHERE id = $2",
         [25, referredBy]
       );
-      await createTransaction(
-        referredBy,
-        "referral_bonus",
-        25,
-        null,
-        null,
-        "completed"
-      );
+      await createTransaction(referredBy, "referral_bonus", 25, null, null, "completed");
     }
 
     user = await queryOne<User>("SELECT * FROM users WHERE id = $1", [id]);
@@ -130,14 +125,8 @@ export async function getUserById(id: number): Promise<User | null> {
   return queryOne<User>("SELECT * FROM users WHERE id = $1", [id]);
 }
 
-export async function updateBalance(
-  userId: number,
-  delta: number
-): Promise<void> {
-  await query("UPDATE users SET balance = balance + $1 WHERE id = $2", [
-    delta,
-    userId,
-  ]);
+export async function updateBalance(userId: number, delta: number): Promise<void> {
+  await query("UPDATE users SET balance = balance + $1 WHERE id = $2", [delta, userId]);
 }
 
 export async function addXP(userId: number, xp: number): Promise<{ leveledUp: boolean; newLevel: number }> {
@@ -152,12 +141,7 @@ export async function addXP(userId: number, xp: number): Promise<{ leveledUp: bo
     if (newXP >= lvl.xp) newLevel = lvl.level;
   }
 
-  await query("UPDATE users SET xp = $1, level = $2 WHERE id = $3", [
-    newXP,
-    newLevel,
-    userId,
-  ]);
-
+  await query("UPDATE users SET xp = $1, level = $2 WHERE id = $3", [newXP, newLevel, userId]);
   return { leveledUp: newLevel > oldLevel, newLevel };
 }
 
@@ -174,7 +158,6 @@ export async function recordGame(
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [userId, gameType, bet, result, winAmount, details]
   );
-
   await query(
     `UPDATE users SET
       total_games = total_games + 1,
@@ -206,17 +189,17 @@ export async function updateTransactionStatus(
   invoiceId: string,
   status: string
 ): Promise<Transaction | null> {
+  // Only update if current status is 'pending' — prevents double crediting
   return queryOne<Transaction>(
-    `UPDATE transactions SET status = $1 WHERE invoice_id = $2 RETURNING *`,
+    `UPDATE transactions SET status = $1
+     WHERE invoice_id = $2 AND status = 'pending'
+     RETURNING *`,
     [status, invoiceId]
   );
 }
 
 export async function getTopPlayers(limit: number = 10): Promise<User[]> {
-  return query<User>(
-    "SELECT * FROM users ORDER BY balance DESC LIMIT $1",
-    [limit]
-  );
+  return query<User>("SELECT * FROM users ORDER BY balance DESC LIMIT $1", [limit]);
 }
 
 export async function getUserHistory(userId: number, limit: number = 10): Promise<GameHistory[]> {
@@ -295,9 +278,20 @@ export async function getWaitingDiceRooms(): Promise<DiceRoom[]> {
 
 export async function joinDiceRoom(roomId: number, playerId: number): Promise<DiceRoom | null> {
   return queryOne<DiceRoom>(
-    `UPDATE dice_rooms SET status = 'playing', player2_id = $1 WHERE id = $2 AND status = 'waiting' RETURNING *`,
+    `UPDATE dice_rooms SET status = 'playing', player2_id = $1
+     WHERE id = $2 AND status = 'waiting' RETURNING *`,
     [playerId, roomId]
   );
+}
+
+export async function cancelDiceRoom(roomId: number, creatorId: number): Promise<number | null> {
+  const room = await queryOne<DiceRoom>(
+    "SELECT * FROM dice_rooms WHERE id = $1 AND creator_id = $2 AND status = 'waiting'",
+    [roomId, creatorId]
+  );
+  if (!room) return null;
+  await query("UPDATE dice_rooms SET status = 'cancelled' WHERE id = $1", [roomId]);
+  return room.bet;
 }
 
 export async function updateDiceRoom(roomId: number, data: Partial<DiceRoom>): Promise<void> {
@@ -328,9 +322,20 @@ export async function getWaitingCoinflipRooms(): Promise<CoinflipRoom[]> {
 
 export async function joinCoinflipRoom(roomId: number, playerId: number): Promise<CoinflipRoom | null> {
   return queryOne<CoinflipRoom>(
-    `UPDATE coinflip_rooms SET status = 'playing', player2_id = $1 WHERE id = $2 AND status = 'waiting' RETURNING *`,
+    `UPDATE coinflip_rooms SET status = 'playing', player2_id = $1
+     WHERE id = $2 AND status = 'waiting' RETURNING *`,
     [playerId, roomId]
   );
+}
+
+export async function cancelCoinflipRoom(roomId: number, creatorId: number): Promise<number | null> {
+  const room = await queryOne<CoinflipRoom>(
+    "SELECT * FROM coinflip_rooms WHERE id = $1 AND creator_id = $2 AND status = 'waiting'",
+    [roomId, creatorId]
+  );
+  if (!room) return null;
+  await query("UPDATE coinflip_rooms SET status = 'cancelled' WHERE id = $1", [roomId]);
+  return room.bet;
 }
 
 export async function updateCoinflipRoom(roomId: number, data: Partial<CoinflipRoom>): Promise<void> {
