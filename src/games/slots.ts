@@ -3,41 +3,30 @@ import { getUserById, updateBalance, recordGame, addXP } from "../db/queries";
 import { calcXPGain, formatBalance } from "../utils/levels";
 import { config } from "../config";
 
-const SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "⭐", "💎"];
+// Telegram 🎰 slot machine: value 1-64, 4 symbols × 4 × 4
+// v = value - 1, r1 = v>>4, r2 = (v>>2)&3, r3 = v&3
+const REEL_SYMBOLS = ["🍒", "🍋", "🍇", "💎"];
+const REEL_NAMES = ["Вишня", "Лимон", "Виноград", "АЛМАЗ"];
 
-const PAYOUTS: Record<string, number> = {
-  "💎💎💎": 10,
-  "⭐⭐⭐": 5,
-  "🍒🍒🍒": 3,
-  "🍋🍋🍋": 3,
-  "🍊🍊🍊": 3,
-  "🍇🍇🍇": 3,
-};
-
-function spin(): [string, string, string] {
-  return [
-    SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)],
-    SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)],
-    SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)],
-  ];
+function decodeSlot(value: number): [number, number, number] {
+  const v = value - 1;
+  return [(v >> 4) & 3, (v >> 2) & 3, v & 3];
 }
 
-function calcWin(reels: [string, string, string], bet: number): { multiplier: number; win: number } {
-  const key = reels.join("");
+function calcSlotResult(reels: [number, number, number], bet: number) {
+  const [r1, r2, r3] = reels;
+  const syms = reels.map(r => REEL_SYMBOLS[r]);
 
-  if (PAYOUTS[key]) {
-    return { multiplier: PAYOUTS[key], win: bet * PAYOUTS[key] };
+  if (r1 === r2 && r2 === r3) {
+    if (r1 === 3) return { multiplier: 10, win: bet * 10, label: "💎 JACKPOT!", syms };
+    if (r1 === 2) return { multiplier: 7,  win: bet * 7,  label: "🍇 МЕГАВЫИГРЫШ!", syms };
+    if (r1 === 1) return { multiplier: 5,  win: bet * 5,  label: "🍋 ТРОЙНИК!", syms };
+    return                { multiplier: 3,  win: bet * 3,  label: "🍒 ТРОЙНИК!", syms };
   }
-
-  if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
-    return { multiplier: 1.5, win: bet * 1.5 };
+  if (r1 === r2 || r2 === r3 || r1 === r3) {
+    return { multiplier: 2, win: bet * 2, label: "✦ ПАРА", syms };
   }
-
-  return { multiplier: 0, win: 0 };
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+  return { multiplier: 0, win: 0, label: "✕ МИМО", syms };
 }
 
 export async function playSlots(ctx: Context, bet: number) {
@@ -45,133 +34,71 @@ export async function playSlots(ctx: Context, bet: number) {
   const user = await getUserById(userId);
 
   if (!user || user.banned) return ctx.reply("❌ Аккаунт не найден.");
-  if (user.balance < bet) {
-    return ctx.reply(
-      `❌ Недостаточно средств!\n💵 Баланс: ${formatBalance(user.balance)} 🪙\n💸 Ставка: ${bet} 🪙`
-    );
-  }
-  if (bet < config.MIN_BET || bet > config.MAX_BET) {
-    return ctx.reply(`❌ Ставка: от ${config.MIN_BET} до ${config.MAX_BET} 🪙`);
-  }
+  if (user.balance < bet) return ctx.reply(`❌ Недостаточно средств\n💰 Баланс: **${formatBalance(user.balance)}** 🪙`);
+  if (bet < config.MIN_BET || bet > config.MAX_BET) return ctx.reply(`❌ Ставка: ${config.MIN_BET}–${config.MAX_BET} 🪙`);
 
   await updateBalance(userId, -bet);
 
-  const phases = [
-    ["❓", "❓", "❓"],
-    [SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)], "❓", "❓"],
-    [SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)], SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)], "❓"],
-  ];
-
-  const finalReels = spin();
-
-  const loadMsg = await ctx.reply(
-    `🎰 <b>СЛОТЫ</b>\n\n` +
-    `╔═══════════════╗\n` +
-    `║  ❓  │  ❓  │  ❓  ║\n` +
-    `╚═══════════════╝\n\n` +
-    `💸 Ставка: ${formatBalance(bet)} 🪙\n⏳ Крутим...`,
-    { parse_mode: "HTML" }
-  );
-
-  await sleep(800);
-  await ctx.telegram.editMessageText(
-    ctx.chat!.id,
-    loadMsg.message_id,
-    undefined,
-    `🎰 <b>СЛОТЫ</b>\n\n` +
-    `╔═══════════════╗\n` +
-    `║  ${phases[1][0]}  │  ❓  │  ❓  ║\n` +
-    `╚═══════════════╝\n\n` +
-    `💸 Ставка: ${formatBalance(bet)} 🪙\n⏳ Крутим...`,
-    { parse_mode: "HTML" }
-  );
-
-  await sleep(800);
-  await ctx.telegram.editMessageText(
-    ctx.chat!.id,
-    loadMsg.message_id,
-    undefined,
-    `🎰 <b>СЛОТЫ</b>\n\n` +
-    `╔═══════════════╗\n` +
-    `║  ${phases[2][0]}  │  ${phases[2][1]}  │  ❓  ║\n` +
-    `╚═══════════════╝\n\n` +
-    `💸 Ставка: ${formatBalance(bet)} 🪙\n⏳ Крутим...`,
-    { parse_mode: "HTML" }
-  );
-
-  await sleep(900);
-
-  const { multiplier, win } = calcWin(finalReels, bet);
+  // Telegram native slot machine animation!
+  const slotMsg = await ctx.replyWithDice("🎰");
+  const value = slotMsg.dice!.value;
+  const reels = decodeSlot(value);
+  const { multiplier, win, label, syms } = calcSlotResult(reels, bet);
   const won = win > 0;
 
-  if (won) await updateBalance(userId, win);
+  // Wait for animation to complete (~2.5s)
+  await new Promise(r => setTimeout(r, 2500));
 
+  if (won) await updateBalance(userId, win);
   const xpGain = calcXPGain(bet, won);
   const { leveledUp, newLevel } = await addXP(userId, xpGain);
-  await recordGame(userId, "slots", bet, won ? "win" : "loss", win, {
-    reels: finalReels,
-    multiplier,
-  });
+  await recordGame(userId, "slots", bet, won ? "win" : "loss", win, { reels, multiplier, value });
 
   const updatedUser = await getUserById(userId);
 
-  let resultLine = "";
-  if (multiplier >= 10) resultLine = "💎 ДЖЕКПОТ! ×10 💎";
-  else if (multiplier >= 5) resultLine = "⭐ МЕГАВЫИГРЫШ! ×5 ⭐";
-  else if (multiplier >= 3) resultLine = "🎉 ПОБЕДА! ×3";
-  else if (multiplier > 0) resultLine = "✅ ПОБЕДА! ×1.5";
-  else resultLine = "😔 Не повезло...";
+  const resultText =
+    `🎰 <b>СЛОТЫ</b>\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `${syms.join(" ")}  <b>${label}</b>\n` +
+    (multiplier > 0 ? `📊 Множитель: <b>×${multiplier}</b>\n` : "") +
+    `━━━━━━━━━━━━━━━\n` +
+    `💸 Ставка: <b>${formatBalance(bet)} 🪙</b>\n` +
+    (won
+      ? `💰 Выигрыш: <b>+${formatBalance(win)} 🪙</b>\n`
+      : `📉 Потеряно: <b>${formatBalance(bet)} 🪙</b>\n`) +
+    `⭐️ XP: <b>+${xpGain}</b>\n` +
+    `💼 Баланс: <b>${formatBalance(updatedUser?.balance || 0)} 🪙</b>` +
+    (leveledUp ? `\n\n🆙 <b>УРОВЕНЬ ${newLevel}!</b> 🎊` : "");
 
-  await ctx.telegram.editMessageText(
-    ctx.chat!.id,
-    loadMsg.message_id,
-    undefined,
-    `🎰 <b>СЛОТЫ</b>\n\n` +
-    `╔═══════════════╗\n` +
-    `║  ${finalReels[0]}  │  ${finalReels[1]}  │  ${finalReels[2]}  ║\n` +
-    `╚═══════════════╝\n\n` +
-    `${resultLine}\n` +
-    `💸 Ставка: ${formatBalance(bet)} 🪙\n` +
-    (won ? `💰 Выигрыш: <b>+${formatBalance(win)} 🪙</b>\n` : `💸 Потеряно: <b>-${formatBalance(bet)} 🪙</b>\n`) +
-    `⭐ XP: +${xpGain}\n` +
-    `💵 Баланс: ${formatBalance(updatedUser?.balance || 0)} 🪙` +
-    (leveledUp ? `\n\n🆙 <b>УРОВЕНЬ ${newLevel}!</b> 🎊` : ""),
-    {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: `🔄 Ещё раз (${formatBalance(bet)} 🪙)`, callback_data: `slots_bet_${bet}` },
-            { text: "🎮 Меню", callback_data: "back_games" },
-          ],
-          [
-            { text: "📊 Таблица выплат", callback_data: "slots_paytable" },
-          ],
+  await ctx.reply(resultText, {
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: `🔄 Ещё ×${formatBalance(bet)} 🪙`, callback_data: `slots_bet_${bet}` },
+          { text: "🎮 Меню", callback_data: "back_games" },
         ],
-      },
-    }
-  );
+        [{ text: "📊 Таблица выплат", callback_data: "slots_paytable" }],
+      ],
+    },
+  });
 }
 
 export async function showSlotsPaytable(ctx: Context) {
   await ctx.answerCbQuery();
   await ctx.reply(
-    `🎰 <b>ТАБЛИЦА ВЫПЛАТ СЛОТОВ</b>\n\n` +
-    `💎 💎 💎 → ×10 (ДЖЕКПОТ)\n` +
-    `⭐ ⭐ ⭐ → ×5\n` +
-    `🍒 🍒 🍒 → ×3\n` +
-    `🍋 🍋 🍋 → ×3\n` +
-    `🍊 🍊 🍊 → ×3\n` +
-    `🍇 🍇 🍇 → ×3\n` +
-    `Любые 2 одинаковых → ×1.5\n\n` +
-    `🎲 Используется криптографически защищённый рандом`,
+    `🎰 <b>ТАБЛИЦА ВЫПЛАТ</b>\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `💎 💎 💎 → <b>×10 JACKPOT</b>\n` +
+    `🍇 🍇 🍇 → <b>×7</b>\n` +
+    `🍋 🍋 🍋 → <b>×5</b>\n` +
+    `🍒 🍒 🍒 → <b>×3</b>\n` +
+    `Любая пара → <b>×2</b>\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `🎲 Используется нативный Telegram рандом`,
     {
       parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "🔙 Назад", callback_data: "game_slots" }],
-        ],
-      },
+      reply_markup: { inline_keyboard: [[{ text: "🔙 Назад", callback_data: "game_slots" }]] },
     }
   );
 }
