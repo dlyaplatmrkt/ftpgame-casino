@@ -1,0 +1,26 @@
+{
+  "name": "@workspace/telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "node build.mjs",
+    "start": "node dist/index.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "pg": "^8.13.3",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
+    "cron": "^3.1.7"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "@types/node": "^22.10.2",
+    "@types/cron": "^2.4.3",
+    "tsx": "^4.19.2",
+    "esbuild": "^0.24.2",
+    "typescript": "~5.9.2"
+  }
+}
