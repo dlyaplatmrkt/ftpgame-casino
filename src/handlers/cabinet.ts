@@ -1,7 +1,6 @@
 import { Context } from "telegraf";
 import { getUserById, getUserHistory, getUserTransactions } from "../db/queries";
-import { mainMenu } from "../utils/keyboards";
-import { cabinetMessage, escapeMarkdown } from "../utils/formatting";
+import { cabinetMessage } from "../utils/formatting";
 import { formatBalance } from "../utils/levels";
 
 export async function handleCabinet(ctx: Context) {
@@ -10,8 +9,8 @@ export async function handleCabinet(ctx: Context) {
 
   const text = cabinetMessage(user);
 
-  await ctx.reply(text, {
-    parse_mode: "HTML",
+  const sendOpts = {
+    parse_mode: "HTML" as const,
     reply_markup: {
       inline_keyboard: [
         [
@@ -24,7 +23,14 @@ export async function handleCabinet(ctx: Context) {
         ],
       ],
     },
-  });
+  };
+
+  if (ctx.callbackQuery) {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(text, sendOpts).catch(() => ctx.reply(text, sendOpts));
+  } else {
+    await ctx.reply(text, sendOpts);
+  }
 }
 
 export async function handleHistory(ctx: Context) {
@@ -33,49 +39,30 @@ export async function handleHistory(ctx: Context) {
   const history = await getUserHistory(userId, 15);
 
   if (history.length === 0) {
-    return ctx.reply("📊 История игр пуста. Сыграй первую игру!", {
-      reply_markup: {
-        inline_keyboard: [[{ text: "🎮 Играть", callback_data: "back_games" }]],
-      },
+    return ctx.reply("📊 История пуста — сыграй первую игру!", {
+      reply_markup: { inline_keyboard: [[{ text: "🎮 Играть", callback_data: "back_games" }]] },
     });
   }
 
   const gameEmojis: Record<string, string> = {
-    dice_solo: "🎲",
-    dice_multi: "🎲👥",
-    slots: "🎰",
-    coinflip: "🪙",
-    coinflip_multi: "🪙👥",
-    roulette: "🎡",
+    dice_solo: "🎲", dice_multi: "🎲👥",
+    slots: "🎰", coinflip: "🪙", coinflip_multi: "🪙👥", roulette: "🎡",
   };
 
-  let text = `📊 <b>ИСТОРИЯ ИГР (последние ${history.length})</b>\n\n`;
-
+  let text = `📊 <b>История игр</b> (${history.length})\n━━━━━━━━━━━━━━━\n`;
   for (const g of history) {
     const emoji = gameEmojis[g.game_type] || "🎮";
-    const resultEmoji = g.result === "win" ? "✅" : g.result === "draw" ? "🤝" : "❌";
+    const res = g.result === "win" ? "✅" : g.result === "draw" ? "🤝" : "❌";
     const date = new Date(g.created_at).toLocaleDateString("ru-RU");
-
-    text +=
-      `${emoji} ${resultEmoji} ${date}\n` +
-      `Ставка: ${formatBalance(g.bet)} 🪙`;
-
-    if (g.result === "win") {
-      text += ` → +${formatBalance(g.win_amount)} 🪙\n`;
-    } else if (g.result === "draw") {
-      text += ` → 🤝 Возврат\n`;
-    } else {
-      text += ` → -${formatBalance(g.bet)} 🪙\n`;
-    }
+    text += `${emoji} ${res}  <b>${formatBalance(g.bet)} 🪙</b>`;
+    if (g.result === "win") text += `  →  <b>+${formatBalance(g.win_amount)} 🪙</b>`;
+    else if (g.result === "draw") text += `  🤝`;
+    text += `  <i>${date}</i>\n`;
   }
 
   await ctx.reply(text, {
     parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "🔙 Кабинет", callback_data: "back_cabinet" }],
-      ],
-    },
+    reply_markup: { inline_keyboard: [[{ text: "🔙 Кабинет", callback_data: "back_cabinet" }]] },
   });
 }
 
@@ -85,49 +72,32 @@ export async function handleTransactionHistory(ctx: Context) {
   const txs = await getUserTransactions(userId, 15);
 
   if (txs.length === 0) {
-    return ctx.reply("💳 История транзакций пуста.", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "💰 Пополнить", callback_data: "open_deposit" }],
-        ],
-      },
+    return ctx.reply("💳 Транзакций пока нет.", {
+      reply_markup: { inline_keyboard: [[{ text: "💰 Пополнить", callback_data: "open_deposit" }]] },
     });
   }
 
   const typeLabels: Record<string, string> = {
-    deposit: "💰 Пополнение",
+    deposit: "💰 Депозит",
     withdrawal: "💸 Вывод",
     referral_bonus: "👥 Реф. бонус",
-    win: "🏆 Выигрыш",
-    loss: "💸 Проигрыш",
   };
-
   const statusEmoji: Record<string, string> = {
-    pending: "⏳",
-    completed: "✅",
-    failed: "❌",
-    paid: "✅",
+    pending: "⏳", completed: "✅", failed: "❌",
   };
 
-  let text = `💳 <b>ИСТОРИЯ ТРАНЗАКЦИЙ</b>\n\n`;
-
+  let text = `💳 <b>История транзакций</b> (${txs.length})\n━━━━━━━━━━━━━━━\n`;
   for (const tx of txs) {
     const label = typeLabels[tx.type] || tx.type;
-    const emoji = statusEmoji[tx.status] || "❓";
+    const statusE = statusEmoji[tx.status] || "❓";
     const date = new Date(tx.created_at).toLocaleDateString("ru-RU");
-
-    text += `${emoji} ${label}\n`;
-    text += `💵 ${tx.amount > 0 ? "+" : ""}${formatBalance(tx.amount)} 🪙`;
-    if (tx.currency) text += ` (${tx.currency})`;
-    text += ` — ${date}\n\n`;
+    text += `${statusE} ${label}  <b>${tx.amount > 0 ? "+" : ""}${formatBalance(tx.amount)} 🪙</b>`;
+    if (tx.currency) text += `  (${tx.currency})`;
+    text += `  <i>${date}</i>\n`;
   }
 
   await ctx.reply(text, {
     parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "🔙 Кабинет", callback_data: "back_cabinet" }],
-      ],
-    },
+    reply_markup: { inline_keyboard: [[{ text: "🔙 Кабинет", callback_data: "back_cabinet" }]] },
   });
 }
